@@ -1,4 +1,4 @@
-package com.hotel.ms_checkin.security;
+package com.hotel.ms_checkin.config;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
