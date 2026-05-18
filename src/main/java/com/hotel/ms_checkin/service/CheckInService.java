@@ -1,76 +1,88 @@
 package com.hotel.ms_checkin.service;
 
+import com.hotel.ms_checkin.client.HabitacionWebClient;
+import com.hotel.ms_checkin.client.ReservaWebClient;
 import com.hotel.ms_checkin.dto.CheckInRequestDTO;
 import com.hotel.ms_checkin.dto.CheckInResponseDTO;
+import com.hotel.ms_checkin.dto.ReservaDTO;
 import com.hotel.ms_checkin.model.CheckIn;
 import com.hotel.ms_checkin.repository.CheckInRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.time.LocalDateTime;
-import java.util.Optional;
 
 @Service
-@RequiredArgsConstructor // Adiós @Autowired, inyectamos de forma segura por constructor
-@Slf4j // Agregamos los logs estructurados
+@RequiredArgsConstructor
+@Slf4j
 public class CheckInService {
 
-    // Al usar @RequiredArgsConstructor, debe ser "private final"
     private final CheckInRepository checkInRepository;
+    private final ReservaWebClient reservaWebClient;
+    private final HabitacionWebClient habitacionWebClient;
 
-    //  MÉTODO 1: REALIZAR CHECK-IN
-    @Transactional // Indicamos que vamos a modificar la base de datos
-    public CheckInResponseDTO registrarEntrada(CheckInRequestDTO requestDTO) {
+    // MÉTODO 1: CHECK-IN (ENTRADA)
+    @Transactional
+    public CheckInResponseDTO registrarCheckIn(CheckInRequestDTO dto, String token) {
+        log.info("[CHECKIN] Validando reserva ID: {}", dto.getReservaId());
 
-        log.info("[CHECKIN_SERVICE] Validando si la reserva ID {} ya tiene un check-in activo...", requestDTO.getReservaId());
-        Optional<CheckIn> checkInExistente = checkInRepository.findByReservaIdAndEstado(requestDTO.getReservaId(), "ACTIVO");
-
-        if (checkInExistente.isPresent()) {
-            log.warn("Falla en Check-In: La reserva ID {} ya se encuentra ACTIVA", requestDTO.getReservaId());
-            throw new IllegalStateException("Error Esta reserva ya tiene un Check-In activo en el hotel");
+        ReservaDTO reserva = reservaWebClient.obtenerReservaPorId(dto.getReservaId(), token);
+        if (reserva == null) {
+            throw new IllegalArgumentException("Error: La reserva no existe.");
         }
 
-        log.info("[CHECKIN_SERVICE] Generando nuevo Check-In para reserva ID {}", requestDTO.getReservaId());
-        CheckIn nuevoCheckIn = new CheckIn();
-        nuevoCheckIn.setReservaId(requestDTO.getReservaId());
-        nuevoCheckIn.setFechaHoraCheckIn(LocalDateTime.now());
-        nuevoCheckIn.setEstado("ACTIVO");
+        log.info("[CHECKIN] Ocupando habitacion ID: {}", reserva.getHabitacionId());
+        habitacionWebClient.actualizarDisponibilidad(reserva.getHabitacionId(), false, token);
 
-        CheckIn guardado = checkInRepository.save(nuevoCheckIn);
-        log.info("[CHECKIN_SERVICE] Check-In guardado exitosamente con ID {}", guardado.getId());
+        log.info("[CHECKIN] Cambiando reserva a EN_CURSO");
+        reservaWebClient.actualizarEstadoReserva(reserva.getId(), "EN_CURSO", token);
 
-        return convertirAResponseDTO(guardado);
+        CheckIn checkIn = new CheckIn();
+        checkIn.setReservaId(reserva.getId());
+        checkIn.setFechaHoraCheckIn(LocalDateTime.now());
+        checkIn.setEstado("REALIZADO");
+        CheckIn guardado = checkInRepository.save(checkIn);
+
+        return new CheckInResponseDTO(guardado.getId(), guardado.getReservaId(),
+                guardado.getFechaHoraCheckIn(), null, guardado.getEstado());
     }
 
-    //  MÉTODO 2: REALIZAR CHECK-OUT
-    @Transactional // Indicamos que vamos a modificar la base de datos
-    public CheckInResponseDTO registrarSalida(Long reservaId) {
+    // MÉTODO 2: CHECK-OUT (SALIDA)
+    @Transactional
+    public CheckInResponseDTO registrarSalida(Long reservaId, String token) {
+        log.info("[CHECKOUT] Iniciando proceso de salida para reserva ID: {}", reservaId);
 
-        log.info("[CHECKIN_SERVICE] Iniciando proceso de Check-Out para reserva ID {}", reservaId);
-        CheckIn checkInActivo = checkInRepository.findByReservaIdAndEstado(reservaId, "ACTIVO")
-                .orElseThrow(() -> {
-                    log.error("Falla en Check-Out: No se encontró registro activo para la reserva ID {}", reservaId);
-                    return new IllegalArgumentException("Error No se puede hacer Check-Out porque el huésped no está en el hotel");
-                });
+        CheckIn checkIn = checkInRepository.findByReservaId(reservaId)
+                .orElseThrow(() -> new IllegalArgumentException("No hay un check-in activo para esta reserva."));
 
-        checkInActivo.setFechaHoraCheckOut(LocalDateTime.now());
-        checkInActivo.setEstado("FINALIZADO");
+        if (checkIn.getFechaHoraCheckOut() != null) {
+            throw new IllegalStateException("El check-out ya fue realizado para esta reserva.");
+        }
 
-        log.info("[CHECKIN_SERVICE] Actualizando estado a FINALIZADO y guardando hora de salida...");
-        CheckIn actualizado = checkInRepository.save(checkInActivo);
+        ReservaDTO reserva = reservaWebClient.obtenerReservaPorId(reservaId, token);
+        if (reserva == null) {
+            throw new IllegalArgumentException("Error al comunicarse con el servicio de reservas.");
+        }
 
-        return convertirAResponseDTO(actualizado);
-    }
+        log.info("[CHECKOUT] Liberando habitacion ID: {}", reserva.getHabitacionId());
+        habitacionWebClient.actualizarDisponibilidad(reserva.getHabitacionId(), true, token);
 
-    // Método auxiliar (sin @Transactional porque no toca la BD directamente, solo mapea)
-    private CheckInResponseDTO convertirAResponseDTO(CheckIn checkIn) {
+        log.info("[CHECKOUT] Cambiando reserva a FINALIZADA");
+        reservaWebClient.actualizarEstadoReserva(reservaId, "FINALIZADA", token);
+
+        checkIn.setFechaHoraCheckOut(LocalDateTime.now());
+        checkIn.setEstado("FINALIZADO");
+
+        CheckIn actualizado = checkInRepository.save(checkIn);
+
         return new CheckInResponseDTO(
-                checkIn.getId(),
-                checkIn.getReservaId(),
-                checkIn.getFechaHoraCheckIn(),
-                checkIn.getFechaHoraCheckOut(),
-                checkIn.getEstado()
+                actualizado.getId(),
+                actualizado.getReservaId(),
+                actualizado.getFechaHoraCheckIn(),
+                actualizado.getFechaHoraCheckOut(),
+                actualizado.getEstado()
         );
     }
 }

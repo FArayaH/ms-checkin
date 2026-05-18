@@ -9,4 +9,5 @@ public interface CheckInRepository extends JpaRepository<CheckIn, Long> {
 
     // Este método busca automáticamente en la BD por ID de reserva y por Estado
     Optional<CheckIn> findByReservaIdAndEstado(Long reservaId, String estado);
+    Optional<CheckIn> findByReservaId(Long reservaId);
 }
