@@ -12,16 +12,30 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/checkin")
 @RequiredArgsConstructor
+@Tag(name = "Operaciones de Check-In / Check-Out", description = "Endpoints para registrar la llegada y salida física de los huéspedes")
 public class CheckInController {
 
     @Autowired
     private CheckInService checkInService;
 
+    // --- ANOTACIONES SWAGGER ---
+    @Operation(summary = "Registrar Check-In", description = "Cambia el estado de una reserva a REALIZADO y registra la fecha y hora de entrada.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Check-in realizado con éxito"),
+            @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos"),
+            @ApiResponse(responseCode = "409", description = "Conflicto: La reserva no existe o su estado no permite Check-In"),
+            @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+    })
     //  ENDPOINT 1: REALIZAR CHECK-IN (POST)
     @PostMapping
     // @PreAuthorize("hasRole('ADMIN')") // Lo comento temporalmente para probar sin bloqueos
@@ -45,7 +59,15 @@ public class CheckInController {
         }
     }
 
-    //  ENDPOINT 2: REALIZAR CHECK-OUT (PUT) - ¡Este te lo dejo intacto porque está genial!
+
+    // --- ANOTACIONES SWAGGER ---
+    @Operation(summary = "Registrar Check-Out", description = "Cambia el estado de la reserva a FINALIZADO y libera automáticamente la habitación en el inventario.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Check-out realizado con éxito, habitación liberada"),
+            @ApiResponse(responseCode = "409", description = "Conflicto: La reserva no permite Check-Out"),
+            @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+    })
+    //  ENDPOINT 2: REALIZAR CHECK-OUT (PUT)
     @PutMapping("/checkout/{reservaId}")
     // @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> realizarCheckOut(@PathVariable Long reservaId, HttpServletRequest request) {

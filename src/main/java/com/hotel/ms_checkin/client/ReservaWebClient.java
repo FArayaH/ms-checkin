@@ -15,7 +15,7 @@ public class ReservaWebClient {
     public ReservaDTO obtenerReservaPorId(Long id, String token) {
         try {
             return webClientBuilder.build().get()
-                    .uri("http://localhost:8081/api/v1/reserva/" + id)
+                    .uri("http://localhost:8088/api/v1/reserva/" + id)
                     .header("Authorization", "Bearer " + token)
                     .retrieve().bodyToMono(ReservaDTO.class).block();
         } catch (Exception e) { return null; }
